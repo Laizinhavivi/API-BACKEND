@@ -1,48 +1,55 @@
 // src/products/products.controller.ts
-import { Controller, Get, Post, Put, Delete, Param, Body, NotFoundException } from '@nestjs/common';
-import { ProductsService } from './products.service'; // Importar o service
-import { CreateProductDto } from './dto/create-product.dto'; // Importar DTO
-import { UpdateProductDto } from './dto/update-product.dto'; // Importar DTO
-
+import { Controller, Get, Post, Body, Param, Put, Delete, HttpCode, HttpStatus, UseGuards, Query, DefaultValuePipe, ParseIntPipe } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { ProductsService } from './products.service';
+import { CreateProductDto } from './dto/create-product.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
+import { ProductEntity } from './entities/product.entity';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { Role } from '../common/enum/role.enum';
+import { RolesGuard } from '../auth/decorators/roles.guards';
+import { GetUser } from '../auth/decorators/get-user.decorator';
+import type { UserPayload } from '../auth/interfaces/user-payload.interfaces'; // Usar 'import type'
 
 @Controller('products')
+@UseGuards(AuthGuard('jwt'))
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
+  @Post()
+  async create(
+    @Body() createProductDto: CreateProductDto,
+    @GetUser() user: UserPayload,
+  ): Promise<ProductEntity> {
+    return await this.productsService.create(createProductDto, user.userId);
+  }
+
   @Get()
-  findAll(): any[] { // Retorna array de qualquer tipo por enquanto
-    return this.productsService.findAll();
+  async findAll(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+  ) {
+    return await this.productsService.findAll({ page, limit });
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string): any {
-    const product = this.productsService.findOne(parseInt(id, 10));
-    if (!product) {
-        throw new NotFoundException(`Produto com ID ${id} não encontrado.`);
-    }
-    return product;
-  }
-
-  @Post()
-  create(@Body() createProductDto: CreateProductDto): any { // Usar CreateProductDto
-    return this.productsService.create(createProductDto);
+  async findOne(@Param('id', ParseIntPipe) id: number): Promise<ProductEntity> {
+    return await this.productsService.findOne(id);
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() updateProductDto: UpdateProductDto): any { // Usar UpdateProductDto
-    const product = this.productsService.update(parseInt(id, 10), updateProductDto);
-    if (!product) {
-        throw new NotFoundException(`Produto com ID ${id} não encontrado para atualizar.`);
-    }
-    return product;
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateProductDto: UpdateProductDto,
+  ): Promise<ProductEntity> {
+    return await this.productsService.update(id, updateProductDto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string): any {
-    const removed = this.productsService.remove(parseInt(id, 10));
-    if (!removed) {
-        throw new NotFoundException(`Produto com ID ${id} não encontrado para remover.`);
-    }
-    return { message: `Produto com ID ${id} removido com sucesso.` };
+  @Roles(Role.Admin)
+  @UseGuards(RolesGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    return await this.productsService.remove(id);
   }
 }

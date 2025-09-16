@@ -1,81 +1,75 @@
 // src/products/products.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common'; // Importe NotFoundException
 
-interface Product {
-  id: number;
-  name: string;
-  price: number;
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { ProductEntity } from './entities/product.entity';
+import { CreateProductDto } from './dto/create-product.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
+
+// 1. Defina uma interface para as opções de paginação
+interface FindAllOptions {
+  page: number;
+  limit: number;
 }
 
 @Injectable()
 export class ProductsService {
-  private products: Product[] = []; // Array em memória para simular o DB
-  private nextId = 1; // Começaremos IDs do 1
+  constructor(
+    @InjectRepository(ProductEntity)
+    private readonly productRepository: Repository<ProductEntity>,
+  ) {}
 
-  // Para demonstração, vamos adicionar alguns produtos iniciais
-  constructor() {
-    this.create({ name: 'Fone de Ouvido', price: 99.99 });
-    this.create({ name: 'Teclado Mecânico', price: 150.00 });
-    this.create({ name: 'Mouse Gamer', price: 75.50 });
+  async create(createProductDto: CreateProductDto, userId: number): Promise<ProductEntity> {
+    const newProduct = this.productRepository.create({
+      ...createProductDto,
+      user: { id: userId },
+    });
+    return await this.productRepository.save(newProduct);
   }
 
-  findAll(): Product[] {
-    return this.products; // Retorna o array de produtos
+  /**
+   * CORREÇÃO APLICADA AQUI:
+   * O método agora aceita um objeto 'options' que contém 'page' e 'limit'.
+   * A lógica para calcular 'skip' e usar 'take' foi adicionada.
+   */
+  async findAll(options: FindAllOptions): Promise<ProductEntity[]> {
+    const { page, limit } = options;
+    const skip = (page - 1) * limit; // Calcula quantos itens pular
+
+    return await this.productRepository.find({
+      skip: skip,
+      take: limit,
+      relations: ['user'], // Garante que a informação do usuário seja carregada junto
+    });
   }
 
-  
-  findOne(id: number): Product | undefined {
-    return this.products.find(product => product.id === id);
-  }
+  async findOne(id: number): Promise<ProductEntity> {
+    const product = await this.productRepository.findOne({
+      where: { id },
+      relations: ['user'],
+    });
 
-  
-  findOneOrThrow(id: number): Product {
-    const product = this.products.find(p => p.id === id);
     if (!product) {
-      throw new NotFoundException(`Produto com ID ${id} não encontrado.`);
+      throw new NotFoundException(`Produto com ID #${id} não encontrado.`);
     }
     return product;
   }
 
-  create(product: { name: string; price: number }): Product {
-    const newProduct = { id: this.nextId++, ...product };
-    this.products.push(newProduct);
-    return newProduct;
-  }
-
-  
-  update(id: number, product: { name?: string; price?: number }): Product | undefined {
-    const index = this.products.findIndex(p => p.id === id);
-    if (index > -1) {
-      this.products[index] = { ...this.products[index], ...product };
-      return this.products[index];
+  async update(id: number, updateProductDto: UpdateProductDto): Promise<ProductEntity> {
+    const product = await this.productRepository.preload({
+      id: id,
+      ...updateProductDto,
+    });
+    if (!product) {
+      throw new NotFoundException(`Produto com ID #${id} não encontrado para atualizar.`);
     }
-    return undefined; // Retorna undefined se não encontrou (ou lance um erro)
+    return await this.productRepository.save(product);
   }
 
+  async remove(id: number): Promise<void> {
+    const product = await this.findOne(id);
+    await this.productRepository.remove(product);
+  }
   
-  updateOrThrow(id: number, product: { name?: string; price?: number }): Product {
-    const index = this.products.findIndex(p => p.id === id);
-    if (index === -1) {
-      throw new NotFoundException(`Produto com ID ${id} não encontrado para atualização.`);
-    }
-    this.products[index] = { ...this.products[index], ...product };
-    return this.products[index];
-  }
-
- 
-  remove(id: number): boolean {
-    const initialLength = this.products.length;
-    this.products = this.products.filter(p => p.id !== id); // Reatribuição do array
-    return this.products.length < initialLength; // Retorna true se um produto foi removido
-  }
-
-  
-  removeOrThrow(id: number): void {
-    const index = this.products.findIndex(p => p.id === id);
-    if (index === -1) {
-      throw new NotFoundException(`Produto com ID ${id} não encontrado para remoção.`);
-    }
-    this.products.splice(index, 1); // Remove no local
-  }
 }
